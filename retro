@@ -1,57 +1,42 @@
-File 1 — MODIFY (existing file)
-core-framework/src/main/java/com/smbc/raft/core/bdd/steps/ApiRequestSteps.java
+Summary of all changes made to fix Allure:
+1. pom.xml (root) — added property:
 
-Change A — Add 2 imports after the ConfigurationManager import line:
 
-import com.smbc.raft.core.environment.ApiServiceSettings;
-import com.smbc.raft.core.environment.EnvironmentContext;
-Change B — Add new step just before @Given("the STP mock API is available"):
+<aspectj.version>1.9.22</aspectj.version>
+2. application-tests/pom.xml — added dependency:
 
-@Given("the {string} API is available")
-public void theNamedApiIsAvailable(String serviceName) {
-  ApiServiceSettings settings =
-      EnvironmentContext.get().getApiServices().get(serviceName.toLowerCase());
 
-  if (settings == null || settings.getBaseUrl() == null) {
-    throw new IllegalStateException(
-        "No apiServices entry found for '"
-            + serviceName
-            + "' in the active environment config. "
-            + "Add it under 'apiServices' in your environment JSON file.");
-  }
+<dependency>
+    <groupId>org.aspectj</groupId>
+    <artifactId>aspectjweaver</artifactId>
+    <version>${aspectj.version}</version>
+    <scope>test</scope>
+</dependency>
+And updated argLine:
 
-  baseUrlOverride = settings.getBaseUrl();
-  log.info("'{}' API base URL: {}", serviceName, baseUrlOverride);
-  ExtentReportManager.logInfo(serviceName + " API base URL: " + baseUrlOverride);
-}
-Change C — Add new step just before @When("I send a {string} request to {string}"):
 
-@When("I send a {string} request to {string} with body from file {string}")
-public void iSendARequestToWithBodyFromFile(String method, String endpoint, String filePath) {
-  String resolvedEndpoint = ctx.resolveVariables(endpoint);
-  String body;
-  try {
-    body =
-        new String(
-            Thread.currentThread()
-                .getContextClassLoader()
-                .getResourceAsStream("testdata/" + filePath)
-                .readAllBytes());
-  } catch (Exception e) {
-    throw new IllegalStateException(
-        "Could not load request body file 'testdata/" + filePath + "': " + e.getMessage(), e);
-  }
-  RestAssuredClient client =
-      baseUrlOverride == null ? new RestAssuredClient() : new RestAssuredClient(baseUrlOverride);
-  client.setContentType(io.restassured.http.ContentType.JSON);
-  if (authToken != null && !authToken.isBlank()) {
-    client.setHeader("Authorization", "Bearer " + authToken);
-  }
-  Response response = client.post(resolvedEndpoint, body);
-  ctx.storeRawBody(response.getBody().asString());
-  ctx.storeStatusCode(response.getStatusCode());
-  ctx.storeResponseTimeMs(response.getTime());
-  ApiLatencyCollector.record(method, resolvedEndpoint, response.getTime());
-  ExtentReportManager.logInfo(
-      method + " " + resolvedEndpoint + " → HTTP " + response.getStatusCode());
-}
+<argLine>-Xmx2048m -XX:+UseG1GC -javaagent:"${settings.localRepository}/org/aspectj/aspectjweaver/${aspectj.version}/aspectjweaver-${aspectj.version}.jar"</argLine>
+3. application-tests/src/test/java/com/smbc/raft/tests/bdd/runner/TaggedCucumberRunner.java — added Allure plugin to @CucumberOptions:
+
+
+"io.qameta.allure.cucumber7jvm.AllureCucumber7Jvm"
+
+It's already updated — line 250 in application-tests/pom.xml inside the maven-surefire-plugin <configuration> block:
+
+
+application-tests/pom.xml
+└── <build>
+    └── <plugins>
+        └── <plugin> maven-surefire-plugin
+            └── <configuration>
+                └── <argLine>   ← LINE 250
+ find this section in application-tests/pom.xml:
+
+
+<forkCount>1</forkCount>
+<reuseForks>true</reuseForks>
+<argLine>-Xmx2048m -XX:+UseG1GC</argLine>   ← original
+Replace the <argLine> with:
+
+
+<argLine>-Xmx2048m -XX:+UseG1GC -javaagent:"${settings.localRepository}/org/aspectj/aspectjweaver/${aspectj.version}/aspectjweaver-${aspectj.version}.jar"</argLine>
