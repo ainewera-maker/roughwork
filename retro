@@ -1,0 +1,57 @@
+File 1 — MODIFY (existing file)
+core-framework/src/main/java/com/smbc/raft/core/bdd/steps/ApiRequestSteps.java
+
+Change A — Add 2 imports after the ConfigurationManager import line:
+
+import com.smbc.raft.core.environment.ApiServiceSettings;
+import com.smbc.raft.core.environment.EnvironmentContext;
+Change B — Add new step just before @Given("the STP mock API is available"):
+
+@Given("the {string} API is available")
+public void theNamedApiIsAvailable(String serviceName) {
+  ApiServiceSettings settings =
+      EnvironmentContext.get().getApiServices().get(serviceName.toLowerCase());
+
+  if (settings == null || settings.getBaseUrl() == null) {
+    throw new IllegalStateException(
+        "No apiServices entry found for '"
+            + serviceName
+            + "' in the active environment config. "
+            + "Add it under 'apiServices' in your environment JSON file.");
+  }
+
+  baseUrlOverride = settings.getBaseUrl();
+  log.info("'{}' API base URL: {}", serviceName, baseUrlOverride);
+  ExtentReportManager.logInfo(serviceName + " API base URL: " + baseUrlOverride);
+}
+Change C — Add new step just before @When("I send a {string} request to {string}"):
+
+@When("I send a {string} request to {string} with body from file {string}")
+public void iSendARequestToWithBodyFromFile(String method, String endpoint, String filePath) {
+  String resolvedEndpoint = ctx.resolveVariables(endpoint);
+  String body;
+  try {
+    body =
+        new String(
+            Thread.currentThread()
+                .getContextClassLoader()
+                .getResourceAsStream("testdata/" + filePath)
+                .readAllBytes());
+  } catch (Exception e) {
+    throw new IllegalStateException(
+        "Could not load request body file 'testdata/" + filePath + "': " + e.getMessage(), e);
+  }
+  RestAssuredClient client =
+      baseUrlOverride == null ? new RestAssuredClient() : new RestAssuredClient(baseUrlOverride);
+  client.setContentType(io.restassured.http.ContentType.JSON);
+  if (authToken != null && !authToken.isBlank()) {
+    client.setHeader("Authorization", "Bearer " + authToken);
+  }
+  Response response = client.post(resolvedEndpoint, body);
+  ctx.storeRawBody(response.getBody().asString());
+  ctx.storeStatusCode(response.getStatusCode());
+  ctx.storeResponseTimeMs(response.getTime());
+  ApiLatencyCollector.record(method, resolvedEndpoint, response.getTime());
+  ExtentReportManager.logInfo(
+      method + " " + resolvedEndpoint + " → HTTP " + response.getStatusCode());
+}
