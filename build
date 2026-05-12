@@ -1,0 +1,163 @@
+#core-framework/src/main/java/com/smbc/raft/core/bdd/steps/ApiRequestSteps.java
+
+@When("I send a {string} request to {string} with body from file {string}")
+  public void iSendARequestToWithBodyFromFile(String method, String endpoint, String filePath) {
+    String resolvedEndpoint = ctx.resolveVariables(endpoint);
+    String body;
+    try {
+      body =
+          new String(
+              Thread.currentThread()
+                  .getContextClassLoader()
+                  .getResourceAsStream("testdata/" + filePath)
+                  .readAllBytes());
+    } catch (Exception e) {
+      throw new IllegalStateException(
+          "Could not load request body file 'testdata/" + filePath + "': " + e.getMessage(), e);
+    }
+    RestAssuredClient client =
+        baseUrlOverride == null ? new RestAssuredClient() : new RestAssuredClient(baseUrlOverride);
+    client.setContentType(io.restassured.http.ContentType.JSON);
+    if (authToken != null && !authToken.isBlank()) {
+      client.setHeader("Authorization", "Bearer " + authToken);
+    }
+    Response response = client.post(resolvedEndpoint, body);
+    ctx.storeRawBody(response.getBody().asString());
+    ctx.storeStatusCode(response.getStatusCode());
+    ctx.storeResponseTimeMs(response.getTime());
+    ApiLatencyCollector.record(method, resolvedEndpoint, response.getTime());
+    ExtentReportManager.logInfo(
+        method + " " + resolvedEndpoint + " → HTTP " + response.getStatusCode());
+  }
+
+
+application-tests/src/test/resources/testdata/mosaic_register_apikey_request.json
+{
+  "apiKey": "MosaicService_apikey",
+  "description": "Primary API key for Mosaic service integration",
+  "environment": "qa"
+}
+
+
+#application-tests/src/test/resources/features/triforce/mosaic_post_with_body.feature
+@mosaic @body_from_file
+Feature: Mosaic API — POST with JSON body from file
+  Demonstrates how to send a POST request where the request body
+  is loaded from a JSON file under src/test/resources/testdata/.
+
+  Background:
+    Given the "mosaic" API is available
+
+  @smoke
+  Scenario: Register API key using request body loaded from a JSON file
+    When I send a "POST" request to "/api/Config/apiKey?apiKey=MosaicService_apikey" with body from file "mosaic_register_apikey_request.json"
+    Then the response HTTP status should be 200
+    And the response root should match these values:
+      | isSuccessStatusCode | true |
+      | reasonPhrase        | OK   |
+      | statusCode          | 200  |
+
+  @regression
+  Scenario: Enable RFQ synchroniser using request body loaded from a JSON file
+    When I send a "POST" request to "/api/Config/rfqDataSynchroniserStatus?isEnabled=true" with body from file "mosaic_register_apikey_request.json"
+    Then the response HTTP status should be 200
+    And the response root should match these values:
+      | isSuccessStatusCode | true |
+      | reasonPhrase        | OK   |
+      | statusCode          | 200  |
+
+
+#        application-tests/src/test/resources/features/triforce/mosaicapi.feature
+@mosaic @regression
+Feature: Mosaic API — Config and Toms Endpoints
+  Validate Config synchroniser and API key endpoints, and Toms trade data retrieval
+  against the live Mosaic QA API at mosaiclnqa01:5000.
+
+  Background:
+    Given the "mosaic" API is available
+
+  # ── Config — API Key ─────────────────────────────────────────────────────────
+
+  @smoke
+  Scenario: Register a valid API key returns HTTP 200 with success payload
+    When I send a "POST" request to "/api/Config/apiKey?apiKey=MosaicService_apikey"
+    Then the response HTTP status should be 200
+    And the response root should match these values:
+      | isSuccessStatusCode | true |
+      | reasonPhrase        | OK   |
+      | statusCode          | 200  |
+
+  @regression
+  Scenario Outline: Registering different API keys always returns HTTP 200
+    When I send a "POST" request to "/api/Config/apiKey?apiKey=<apiKey>"
+    Then the response HTTP status should be 200
+    And the response root should match these values:
+      | isSuccessStatusCode | true |
+      | reasonPhrase        | OK   |
+      | statusCode          | 200  |
+
+    Examples:
+      | apiKey               |
+      | MosaicService_apikey |
+      | testKey_001          |
+
+  # ── Config — RFQ Data Synchroniser ──────────────────────────────────────────
+
+  @smoke
+  Scenario: Enable RFQ data synchroniser returns HTTP 200 with success payload
+    When I send a "POST" request to "/api/Config/rfqDataSynchroniserStatus?isEnabled=true"
+    Then the response HTTP status should be 200
+    And the response root should match these values:
+      | isSuccessStatusCode | true |
+      | reasonPhrase        | OK   |
+      | statusCode          | 200  |
+
+  @regression
+  Scenario: Disable RFQ data synchroniser returns HTTP 200 with success payload
+    When I send a "POST" request to "/api/Config/rfqDataSynchroniserStatus?isEnabled=false"
+    Then the response HTTP status should be 200
+    And the response root should match these values:
+      | isSuccessStatusCode | true |
+      | reasonPhrase        | OK   |
+      | statusCode          | 200  |
+
+  # ── Config — TTA API Synchroniser ───────────────────────────────────────────
+
+  @smoke
+  Scenario: Enable TTA API synchroniser returns HTTP 200 with success payload
+    When I send a "POST" request to "/api/Config/ttaApiSynchroniserStatus?isEnabled=true"
+    Then the response HTTP status should be 200
+    And the response root should match these values:
+      | isSuccessStatusCode | true |
+      | reasonPhrase        | OK   |
+      | statusCode          | 200  |
+
+  @regression
+  Scenario: Disable TTA API synchroniser returns HTTP 200 with success payload
+    When I send a "POST" request to "/api/Config/ttaApiSynchroniserStatus?isEnabled=false"
+    Then the response HTTP status should be 200
+    And the response root should match these values:
+      | isSuccessStatusCode | true |
+      | reasonPhrase        | OK   |
+      | statusCode          | 200  |
+
+  # ── Toms — GetFromDb ─────────────────────────────────────────────────────────
+
+  @smoke
+  Scenario: GetFromDb returns trade records for a valid date range
+    When I send a "GET" request to "/api/Toms/GetFromDb?from=2026-04-12T16:14:00.366Z&to=2026-05-12T16:14:00.366Z"
+    Then the response HTTP status should be 200
+    And the response array "root" should contain these records:
+      | CustomerAccountCounterparty | SecurityCurrencyISOCode | TransactionId | BloombergFLVID |
+      | JPA                         | EUR                     | 1002989       | 1005           |
+
+  @regression
+  Scenario: GetFromDb trade records contain counterparty, instrument and settlement fields
+    When I send a "GET" request to "/api/Toms/GetFromDb?from=2026-04-12T16:14:00.366Z&to=2026-05-12T16:14:00.366Z"
+    Then the response HTTP status should be 200
+    And the response array "root" should contain these records:
+      | CustomerAccountCounterparty | SecurityCurrencyISOCode | CounterpartyDecodedLongName | TransactionId | BloombergFLVID |
+      | JPA                         | EUR                     | J.P. MORGAN SECURITIES LTD  | 1002989       | 1005           |
+
+
+
