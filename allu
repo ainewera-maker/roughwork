@@ -1,0 +1,8 @@
+
+mvn io.qameta.allure:allure-maven:2.14.0:serve -pl application-tests
+# Step 2 — serve the Allure report
+mvn io.qameta.allure:allure-maven:2.14.0:serve -pl application-tests
+Option 3: Generate a static report (no server needed)
+
+mvn io.qameta.allure:allure-maven:2.14.0:report -pl application-tests
+# Opens: application-tests/target/site/allure-maven-plugin/index.html
